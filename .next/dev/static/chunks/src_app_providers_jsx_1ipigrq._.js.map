@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["C:/Users/plzdo/Desktop/Something cute/our-journey/src/app/providers.jsx"],"sourcesContent":["\"use client\";\n\nimport { SessionProvider } from \"next-auth/react\";\n\nexport default function Providers({ children }) {\n  return <SessionProvider>{children}</SessionProvider>;\n}\n"],"names":["c","_c","SessionProvider","Providers","t0","$","$i","Symbol","for","children","t1"],"mappings":";;;;;AAAa,SAAAA,CAAA,IAAAC,EAAA;AAEb,SAASC,eAAe,QAAQ,iBAAiB;AAFjD,YAAY;;;;AAIG,mBAAAE,EAAA;IAAA,MAAAC,CAAA,OAAAJ,gLAAA,EAAA;IAAA,IAAAI,CAAA,CAAA,EAAA,KAAA,oEAAA;QAAA,IAAA,IAAAC,EAAA,GAAA,GAAAA,EAAA,GAAA,GAAAA,EAAA,IAAA,EAAA;YAAAD,CAAA,CAAAC,EAAA,CAAA,GAAAC,MAAA,CAAAC,GAAA,CAAA;QAAA;QAAAH,CAAA,CAAA,EAAA,GAAA;IAAA;IAAmB,MAAA,EAAAI,QAAAA,EAAA,GAAAL,EAAY;IAAA,IAAAM,EAAA;IAAA,IAAAL,CAAA,CAAA,EAAA,KAAAI,QAAA,EAAA;QACrCC,EAAA,iBAAA,6LAAC,2JAAe,CAAED;sBAAAA,QAAO,CAAE,EAA1B,eAAe,CAA6B;;;;;;QAAAJ,CAAA,CAAA,EAAA,GAAAI,QAAA;QAAAJ,CAAA,CAAA,EAAA,GAAAK,EAAA;IAAA,OAAA;QAAAA,EAAA,GAAAL,CAAA,CAAA,EAAA;IAAA;IAAA,OAA7CK,EAA6C;AAAA;KADvCP","ignoreList":[]}}]
+}
