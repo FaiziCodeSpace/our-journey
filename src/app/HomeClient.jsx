@@ -7,10 +7,13 @@ import MemoriesFeed from "@/components/MemoriesFeed";
 import DiarySpread from "@/components/DiarySpread";
 import EntryModal from "@/components/EntryModal";
 import AddMemoryModal from "@/components/AddMemoryModal";
+import OurLocation from "@/components/OurLocation";
+import NotificationBell from "@/components/NotificationBell";
 
 const TABS = [
   { id: "journey", label: "Journey" },
   { id: "diary", label: "Diary" },
+  { id: "location", label: "Location" },
 ];
 
 function entryId(e) {
@@ -66,6 +69,19 @@ export default function HomePage() {
     setToast("Memory deleted");
   }
 
+  // Opens the memory a notification refers to, reusing the existing
+  // EntryModal instead of building a second memory viewer.
+  function handleOpenMemory(memoryId) {
+    if (!memoryId) return;
+    const found = entries.find((e) => entryId(e) === memoryId);
+    if (found) {
+      setTab("journey");
+      setOpenEntry(found);
+    } else {
+      setToast("That memory isn't available anymore.");
+    }
+  }
+
   if (status === "loading") {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -77,7 +93,9 @@ export default function HomePage() {
   return (
     <main className="min-h-screen flex flex-col">
       <header className="pt-6 sm:pt-8 pb-3 sm:pb-4 px-4 sm:px-8 flex items-center justify-between max-w-7xl mx-auto w-full">
-        <div className="w-16 sm:w-24" aria-hidden /> {/* balances the sign-out button so the title stays centered */}
+        <div className="w-16 sm:w-24 flex items-center"> {/* balances the sign-out button so the title stays centered */}
+          <NotificationBell onOpenMemory={handleOpenMemory} />
+        </div>
         <div className="text-center">
           <h1 className="font-hand text-3xl sm:text-5xl text-ink rotate-[-1deg]">Memory Lane</h1>
           {session?.user?.name && (
@@ -126,6 +144,11 @@ export default function HomePage() {
               </div>
             )}
             {tab === "diary" && <DiarySpread entries={entries} viewerAuthor={viewerAuthor} />}
+            {tab === "location" && (
+              <div className="max-w-2xl mx-auto">
+                <OurLocation viewerIdentity={viewerAuthor} onToast={setToast} />
+              </div>
+            )}
           </>
         )}
       </div>

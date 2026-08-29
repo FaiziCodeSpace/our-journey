@@ -13,6 +13,11 @@ NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=
 NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET=   # unsigned preset, no spaces in the name
 CLOUDINARY_API_KEY=           # Cloudinary dashboard > Settings > Access Keys — needed to delete images
 CLOUDINARY_API_SECRET=        # same place; keep this one secret, never NEXT_PUBLIC_
+
+# Optional — override the default "Him"/"Her" labels used everywhere
+# (memories, the location page, notifications) with real names.
+NEXT_PUBLIC_ME_LABEL=
+NEXT_PUBLIC_HER_LABEL=
 ```
 Restart `next dev` after any change to `.env.local` — it's only read on startup.
 
@@ -76,6 +81,59 @@ from `AUTH_ME_EMAIL`, `AUTH_ME_PASSWORD_HASH`, `AUTH_HER_EMAIL`, `AUTH_HER_PASSW
 There's no signup flow by design — create your two accounts by hashing passwords yourself (command above)
 and putting the emails/hashes in `.env.local`. Then go to `/login` and sign in with the plain-text password
 (the hash is only for storage/comparison).
+
+## Live Location, notifications, and the identity audit (this pass)
+
+**No new required env vars.** The map uses Leaflet + OpenStreetMap raster
+tiles, which need no API key/token. `NEXT_PUBLIC_ME_LABEL`/`NEXT_PUBLIC_HER_LABEL`
+(above) already existed as an undocumented option in `authorLabel.js` —
+they're just documented now, and also drive the new Location page's
+colors/labels.
+
+- **`src/lib/identity.js`** is the new single source of truth for "who is
+  this": `getIdentity(session)` resolves `"me" | "her"` from the
+  server-side session only (never from the client), `getOtherIdentity()`
+  gives you the partner, and `IDENTITY_META` holds each identity's label
+  + color. `authorLabel.js`, `Entry.js`, `DiarySpread.jsx`, and every new
+  route now read from here instead of repeating `"me"`/`"her"` string
+  literals.
+- **Identity audit finding**: I read through every component listed in the
+  brief (`AddMemoryModal`, `EntryModal`, `MemoriesFeed`,
+  `RelationshipTimeline`, `HomeClient`) and didn't find an actual
+  swapped Him/Her display bug — `authorLabel()` was already threaded
+  through consistently everywhere. What *was* true is that `"me"`/`"her"`
+  were hardcoded as raw strings in several unrelated files with no shared
+  source, which is exactly the kind of thing that causes drift later.
+  That's now centralized (see above).
+- **Live Location** (`src/components/OurLocation.jsx` + `LocationMap.jsx`):
+  a third tab ("Location") next to Journey/Diary. Uses the browser's
+  Geolocation `watchPosition`, throttled to at most one write per ~20s
+  (or a 15m move, whichever comes first) so it doesn't hammer the DB.
+  Custom blue "Him" / pink "Her" markers are hand-built Leaflet divIcons
+  (no generic pins, no paid map API). Handles both-available,
+  one-available, neither-available, permission-denied, unsupported, and
+  stale-location states explicitly. The geolocation watcher is stopped
+  whenever the Location tab unmounts (switching tabs, or leaving the
+  page) — it never keeps running in the background.
+- **Closest-we've-ever-been** is a single record (`DistanceRecord` model),
+  updated via a race-safe atomic upsert (`findOneAndUpdate` with a `$gt`
+  guard) so two near-simultaneous location updates from both accounts
+  can't corrupt it.
+- **Notifications**: creating a memory (`POST /api/entries`) now creates a
+  `Notification` for the *other* identity only — never the creator. The
+  bell in the header polls an unread count every ~25s; clicking a
+  notification marks it read and opens the memory in the existing
+  `EntryModal` (no second memory viewer was built).
+- **Security**: every new route derives identity from `getIdentity(session)`
+  server-side. Nothing in `/api/location` or `/api/notifications` accepts
+  an identity/recipient from the request body — there's no field to spoof.
+- **One gap I noticed, unrelated to this pass**: this file documents
+  `src/proxy.js` (redirects unauthenticated visitors to `/login`), but
+  that file isn't actually in the project as uploaded. The root page
+  (`src/app/page.js`) still gates itself with its own `auth()` check, and
+  every API route (old and new) checks auth independently, so nothing is
+  unprotected — but if `proxy.js` really is missing rather than just
+  gitignored, worth re-adding it.
 
 ## Still open / worth deciding next
 1. **Diary pairing**: left/right pages are paired by chronological index (your Nth entry opposite her Nth

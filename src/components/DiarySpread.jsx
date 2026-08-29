@@ -3,6 +3,7 @@
 import { useMemo, useState, useRef } from "react";
 import PolaroidImage from "./PolaroidImage";
 import { authorLabel } from "@/lib/authorLabel";
+import { ME, HER } from "@/lib/identity";
 
 /**
  * Pairs "me" and "her" entries into spreads by chronological index —
@@ -15,8 +16,8 @@ import { authorLabel } from "@/lib/authorLabel";
  */
 function useSpreads(entries) {
   return useMemo(() => {
-    const mine = entries.filter((e) => e.author === "me").sort((a, b) => new Date(a.date) - new Date(b.date));
-    const hers = entries.filter((e) => e.author === "her").sort((a, b) => new Date(a.date) - new Date(b.date));
+    const mine = entries.filter((e) => e.author === ME).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const hers = entries.filter((e) => e.author === HER).sort((a, b) => new Date(a.date) - new Date(b.date));
     const count = Math.max(mine.length, hers.length);
     return Array.from({ length: count }, (_, i) => ({ left: mine[i] || null, right: hers[i] || null }));
   }, [entries]);

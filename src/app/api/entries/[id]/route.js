@@ -3,13 +3,14 @@ import { auth } from "@/auth";
 import { connectDB } from "@/lib/db";
 import Entry from "@/lib/models/Entry";
 import { deleteImagesByUrl } from "@/lib/cloudinary";
+import { getIdentity } from "@/lib/identity";
 
 const isDev = process.env.NODE_ENV !== "production";
 
-async function loadOwnedEntry(id, session) {
+async function loadOwnedEntry(id, identity) {
   const entry = await Entry.findById(id);
   if (!entry) return { error: NextResponse.json({ error: "Entry not found" }, { status: 404 }) };
-  if (entry.author !== session.user.author) {
+  if (entry.author !== identity) {
     // You can only edit/delete your own entries — not your partner's.
     return { error: NextResponse.json({ error: "You can only edit your own entries" }, { status: 403 }) };
   }
@@ -18,7 +19,8 @@ async function loadOwnedEntry(id, session) {
 
 export async function PATCH(request, { params }) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = getIdentity(session);
+  if (!identity) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
   const body = await request.json();
@@ -30,7 +32,7 @@ export async function PATCH(request, { params }) {
 
   try {
     await connectDB();
-    const { entry, error } = await loadOwnedEntry(id, session);
+    const { entry, error } = await loadOwnedEntry(id, identity);
     if (error) return error;
 
     // Any images that were on the entry before but aren't in the incoming
@@ -57,13 +59,14 @@ export async function PATCH(request, { params }) {
 
 export async function DELETE(request, { params }) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const identity = getIdentity(session);
+  if (!identity) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
 
   try {
     await connectDB();
-    const { entry, error } = await loadOwnedEntry(id, session);
+    const { entry, error } = await loadOwnedEntry(id, identity);
     if (error) return error;
 
     await entry.deleteOne();
