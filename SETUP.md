@@ -18,6 +18,16 @@ CLOUDINARY_API_SECRET=        # same place; keep this one secret, never NEXT_PUB
 # (memories, the location page, notifications) with real names.
 NEXT_PUBLIC_ME_LABEL=
 NEXT_PUBLIC_HER_LABEL=
+
+# Optional — push notifications (memory alerts even when the site is
+# closed). Leave these blank and everything else still works; the bell's
+# in-app notifications don't need them. Generate a pair with:
+#   npx web-push generate-vapid-keys
+# and paste the two keys below. VAPID_SUBJECT must be a mailto: or
+# https: URL — some push services require it to be reachable.
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:you@example.com
 ```
 Restart `next dev` after any change to `.env.local` — it's only read on startup.
 
@@ -134,6 +144,46 @@ colors/labels.
   every API route (old and new) checks auth independently, so nothing is
   unprotected — but if `proxy.js` really is missing rather than just
   gitignored, worth re-adding it.
+
+## Second pass: map polish, day/night, accuracy, push notifications
+
+- **Fixed a real bug**: Tailwind's Preflight resets `img { max-width:
+  100%; height: auto }` globally, which breaks Leaflet — its tiles and
+  markers are positioned assuming their real pixel size. This is almost
+  certainly why the map looked wrong/squished. Scoped a fix to
+  `.leaflet-container img` in `globals.css` so it doesn't touch anything
+  else.
+- **Map style is now switchable** — Voyager/Light/Dark/Classic tile
+  presets (all free, no API key), picked from small pills under the map,
+  remembered in `localStorage`. Markers now also carry a small
+  sun/twilight/moon corner badge per person.
+- **Day/night** (`src/lib/dayNight.js`, uses `suncalc`) is computed from
+  each person's actual coordinates, not timezone — a sun-altitude
+  calculation, so it's correct regardless of political time zones or DST.
+  Shown as an icon + rough "solar" local time (15°-of-longitude estimate,
+  not a real timezone) next to each person's status card, with the card's
+  background tinting warm for day / cool for night.
+- **Location accuracy**: `watchPosition` now forces `maximumAge: 0`
+  (always a fresh GPS read, not a cached one), and fixes noisier than
+  100m accuracy are discarded client-side before ever reaching the
+  server — a bad reading is worse than no reading, especially for the
+  closest-ever record. Movement threshold for DB writes tightened to 8m.
+- **Closest-ever record now always updates**, including from the very
+  first pairing of locations — it no longer waits for both locations to
+  be "fresh" (within 5 minutes of each other) before computing/saving a
+  distance. The distance shown in the UI does the same. Staleness is
+  still surfaced separately via the "last known" badge on each person's
+  status, it just no longer blocks the record itself.
+- **Push notifications** (optional, see `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/
+  `VAPID_PRIVATE_KEY` above): when a memory is created, the other
+  identity gets a real OS-level push notification — even with the site
+  closed — via a service worker (`public/sw.js`) + the `web-push` package.
+  The copy is identical to the in-app notification ("Him added a new
+  memory", never "You posted a memory") since both read from the same
+  title/message built in `POST /api/entries`. Enabled per-device from a
+  toggle at the bottom of the notification panel (requires a user tap —
+  never auto-prompts for permission). If the VAPID keys aren't set, this
+  toggle just doesn't appear; nothing else is affected.
 
 ## Still open / worth deciding next
 1. **Diary pairing**: left/right pages are paired by chronological index (your Nth entry opposite her Nth

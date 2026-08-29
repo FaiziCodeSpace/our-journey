@@ -1,11 +1,22 @@
 @import "tailwindcss";
 
+/*
+ * Tailwind v4 reads theme tokens straight from CSS — no tailwind.config.js.
+ * Anything under --color-* becomes a color utility (bg-paper, text-rose, ...),
+ * anything under --font-* becomes a font utility (font-hand, font-ui).
+ *
+ * Fonts are loaded via next/font/google in layout.js (not a network @import
+ * here) — Turbopack expands `@import "tailwindcss"` inline, and a plain
+ * `@import url(...)` placed after it violates the CSS rule that imports
+ * must precede all other rules. --caveat-font/--quicksand-font are the
+ * CSS vars next/font attaches to <html>.
+ */
 @theme {
-  --color-paper: #FBF1E7;
-  --color-blush: #F7D9E3;     
-  --color-baby-pink: #FCE4EC; 
-  --color-rose: #B5384F;       
-  --color-ink: #4A3540;       
+  --color-paper: #FBF1E7;      /* cream/off-white paper */
+  --color-blush: #F7D9E3;      /* blush pink */
+  --color-baby-pink: #FCE4EC;  /* baby pink */
+  --color-rose: #B5384F;       /* deep rose/berry accent */
+  --color-ink: #4A3540;        /* warm plum-brown text */
 
   --font-hand: var(--caveat-font), cursive;
   --font-ui: var(--quicksand-font), sans-serif;
@@ -92,6 +103,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Tailwind's Preflight resets `img { max-width: 100%; height: auto }`,
+   which breaks Leaflet — its 256px tiles and markers are positioned via
+   absolute CSS assuming their real pixel size, so a max-width/height:auto
+   reset squishes and misaligns them. This undoes Preflight scoped to
+   Leaflet's own containers only. */
 .leaflet-container img {
   max-width: none !important;
   max-height: none !important;

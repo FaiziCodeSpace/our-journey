@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, BellRing } from "lucide-react";
 import { IDENTITY_META } from "@/lib/identity";
 import { timeAgo } from "@/lib/timeAgo";
+import { getPushStatus, enablePush, disablePush } from "@/lib/pushClient";
 
 const POLL_MS = 25000;
 
@@ -17,7 +18,26 @@ export default function NotificationBell({ onOpenMemory }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [pushStatus, setPushStatus] = useState("unsupported"); // unsupported | unconfigured | not-subscribed | subscribed | denied
   const wrapRef = useRef(null);
+
+  useEffect(() => {
+    // Deferred, same reasoning as the unread-count kickoff below.
+    const t = setTimeout(() => {
+      getPushStatus().then(setPushStatus).catch(() => {});
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function togglePush() {
+    if (pushStatus === "subscribed") {
+      await disablePush();
+      setPushStatus("not-subscribed");
+    } else {
+      const result = await enablePush();
+      setPushStatus(result);
+    }
+  }
 
   const refreshUnread = useCallback(async () => {
     try {
@@ -147,6 +167,23 @@ export default function NotificationBell({ onOpenMemory }) {
               })
             )}
           </div>
+
+          {pushStatus !== "unsupported" && pushStatus !== "unconfigured" && (
+            <button
+              onClick={togglePush}
+              className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 border-t border-blush/70 font-ui text-[11px] text-ink/60 hover:bg-baby-pink/30 transition-colors"
+            >
+              {pushStatus === "subscribed" ? (
+                <>
+                  <BellRing size={13} className="text-rose" /> Push notifications on — tap to turn off
+                </>
+              ) : (
+                <>
+                  <Bell size={13} /> Get notified even when the site is closed
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>

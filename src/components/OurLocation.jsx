@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { Sun, Sunset, Moon } from "lucide-react";
 import { IDENTITY_META, ME, HER } from "@/lib/identity";
 import { formatDistance, haversineDistanceMeters } from "@/lib/geo";
 import { timeAgo } from "@/lib/timeAgo";
+import { sunState, approxLocalTime } from "@/lib/dayNight";
 
-const LocationMap = dynamic(() => import("./LocationMap"), {
+const LocationMapImpl = dynamic(() => import("./LocationMap"), {
   ssr: false,
   loading: () => (
     <div className="h-full w-full flex items-center justify-center">
@@ -14,21 +16,49 @@ const LocationMap = dynamic(() => import("./LocationMap"), {
     </div>
   ),
 });
+// MAP_STYLES is a plain object export, safe to pull in statically even
+// though the component itself is dynamically imported.
+import { MAP_STYLES } from "./LocationMap";
 
 const POLL_MS = 20000;
-const MOVE_THRESHOLD_M = 15; // ignore GPS jitter smaller than this
-const MIN_POST_INTERVAL_MS = 20000; // ...and never write more often than this
+const MOVE_THRESHOLD_M = 8; // ignore GPS jitter smaller than this
+const MIN_POST_INTERVAL_MS = 15000; // ...and never write more often than this
+const MAX_ACCEPTABLE_ACCURACY_M = 100; // discard fixes noisier than this — a bad reading is worse than no reading
 const SHARING_KEY = "memory-lane:location-sharing-enabled";
+const STYLE_KEY = "memory-lane:map-style";
+
+const SUN_META = {
+  day: { Icon: Sun, label: "Daytime", tint: "from-amber-50 to-orange-50", ring: "#F7B733" },
+  twilight: { Icon: Sunset, label: "Dawn/dusk", tint: "from-orange-50 to-indigo-50", ring: "#F2994A" },
+  night: { Icon: Moon, label: "Nighttime", tint: "from-indigo-100 to-slate-200", ring: "#6366F1" },
+};
 
 export default function OurLocation({ viewerIdentity, onToast }) {
   const [data, setData] = useState(null); // { me, her, distanceMeters, closest }
   const [loadError, setLoadError] = useState(null);
   const [permission, setPermission] = useState("idle"); // idle | prompting | granted | denied | unsupported | error
   const [sharing, setSharing] = useState(false);
-  const [, forceTick] = useState(0); // re-render periodically so "x sec ago" stays fresh, no network involved
+  const [tileStyle, setTileStyle] = useState("voyager");
+  const [, forceTick] = useState(0); // re-render periodically so "x sec ago" / sun state stay fresh, no network involved
 
   const watchIdRef = useRef(null);
   const lastSentRef = useRef({ pos: null, at: 0 });
+
+  useEffect(() => {
+    // Deferred via setTimeout(..., 0), same reasoning as the kickoff
+    // effect below — reading localStorage and setting state directly in
+    // an effect body trips the same lint rule.
+    const t = setTimeout(() => {
+      const saved = localStorage.getItem(STYLE_KEY);
+      if (saved && MAP_STYLES[saved]) setTileStyle(saved);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  function changeTileStyle(id) {
+    setTileStyle(id);
+    if (typeof window !== "undefined") localStorage.setItem(STYLE_KEY, id);
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -76,7 +106,7 @@ export default function OurLocation({ viewerIdentity, onToast }) {
   }, []);
 
   const startSharing = useCallback(
-    (opts = {}) => {
+    () => {
       if (typeof window === "undefined" || !("geolocation" in navigator)) {
         setPermission("unsupported");
         return;
@@ -91,14 +121,20 @@ export default function OurLocation({ viewerIdentity, onToast }) {
           if (typeof window !== "undefined") localStorage.setItem(SHARING_KEY, "true");
 
           const { latitude, longitude, accuracy } = pos.coords;
+
+          // A noisy fix is worse than no fix — it can plant a false
+          // "closest ever" record. Wait for a better one instead of
+          // sending it.
+          if (typeof accuracy === "number" && accuracy > MAX_ACCEPTABLE_ACCURACY_M) return;
+
           const now = Date.now();
           const last = lastSentRef.current;
           const moved = last.pos
             ? haversineDistanceMeters(last.pos, { latitude, longitude })
             : Infinity;
 
-          // Throttle: only write when we've moved enough, or enough time
-          // has passed — keeps this from hammering the DB on every fix.
+          // Throttle DB writes (not GPS reads): only write when we've
+          // moved enough, or enough time has passed.
           if (moved < MOVE_THRESHOLD_M && now - last.at < MIN_POST_INTERVAL_MS) return;
 
           lastSentRef.current = { pos: { latitude, longitude }, at: now };
@@ -110,17 +146,15 @@ export default function OurLocation({ viewerIdentity, onToast }) {
           if (typeof window !== "undefined") localStorage.setItem(SHARING_KEY, "false");
           setPermission(err.code === err.PERMISSION_DENIED ? "denied" : "error");
         },
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+        // maximumAge: 0 forces a fresh GPS read every time rather than a
+        // cached one — costs a little more battery, but this is a live
+        // location feature, so freshness/accuracy wins.
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     },
     [sendLocation]
   );
 
-  // Initial load + poll for the partner's updates while this tab is
-  // mounted. Also auto-resume sharing if the user previously opted in
-  // (browsers don't re-prompt once permission is already granted) —
-  // but never auto-request permission on a first visit, so we're never
-  // the reason a permission prompt shows up unprompted.
   useEffect(() => {
     // Deferred via setTimeout(..., 0) rather than called directly: this
     // is a scheduled-callback pattern (same shape as the setIntervals
@@ -155,6 +189,9 @@ export default function OurLocation({ viewerIdentity, onToast }) {
   const meMeta = IDENTITY_META[ME];
   const herMeta = IDENTITY_META[HER];
 
+  const meSun = useMemo(() => (me ? sunState(me.latitude, me.longitude) : null), [me]);
+  const herSun = useMemo(() => (her ? sunState(her.latitude, her.longitude) : null), [her]);
+
   return (
     <div className="w-full bg-paper/90 rounded-xl border border-blush shadow-[3px_5px_0_rgba(74,53,64,0.10)] p-4 sm:p-5">
       <div className="flex items-baseline justify-between gap-3 mb-1">
@@ -180,7 +217,7 @@ export default function OurLocation({ viewerIdentity, onToast }) {
         <p className="font-hand text-xl text-rose/80 -mt-1 mb-3">{formatDistance(distanceMeters)} apart</p>
       ) : (
         <p className="font-ui text-xs text-ink/35 -mt-0.5 mb-3">
-          {me && her ? "Waiting on a fresher location from one of you." : "Share your location to see the distance between you."}
+          {me && her ? "Waiting on a location fix to measure the distance." : "Share your location to see the distance between you."}
         </p>
       )}
 
@@ -204,7 +241,7 @@ export default function OurLocation({ viewerIdentity, onToast }) {
 
       <div className="relative h-56 sm:h-72 rounded-lg border border-blush overflow-hidden bg-baby-pink/30">
         {me || her ? (
-          <LocationMap me={me} her={her} meMeta={meMeta} herMeta={herMeta} />
+          <LocationMapImpl me={me} her={her} meMeta={meMeta} herMeta={herMeta} meSun={meSun} herSun={herSun} tileStyle={tileStyle} />
         ) : (
           <div className="h-full w-full flex items-center justify-center text-center px-6">
             <p className="font-ui text-sm text-ink/40">
@@ -214,9 +251,27 @@ export default function OurLocation({ viewerIdentity, onToast }) {
         )}
       </div>
 
+      {/* Map style picker — purely cosmetic, swaps tiles without moving markers */}
+      <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pretty-scroll">
+        <span className="font-ui text-[10px] uppercase tracking-wide text-ink/35 shrink-0">Map style</span>
+        {Object.entries(MAP_STYLES).map(([id, style]) => (
+          <button
+            key={id}
+            onClick={() => changeTileStyle(id)}
+            className={`shrink-0 font-ui text-[11px] px-2.5 py-1 rounded-full border transition ${
+              tileStyle === id
+                ? "bg-rose text-paper border-rose"
+                : "bg-white/60 text-ink/60 border-blush hover:bg-baby-pink/40"
+            }`}
+          >
+            {style.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 mt-4">
-        <PersonStatus meta={meMeta} loc={me} isViewer={viewerIdentity === ME} />
-        <PersonStatus meta={herMeta} loc={her} isViewer={viewerIdentity === HER} />
+        <PersonStatus meta={meMeta} loc={me} sun={meSun} isViewer={viewerIdentity === ME} />
+        <PersonStatus meta={herMeta} loc={her} sun={herSun} isViewer={viewerIdentity === HER} />
       </div>
 
       <div className="mt-4 pt-4 border-t border-dashed border-blush flex items-center justify-between gap-2">
@@ -240,20 +295,27 @@ export default function OurLocation({ viewerIdentity, onToast }) {
   );
 }
 
-function PersonStatus({ meta, loc, isViewer }) {
+function PersonStatus({ meta, loc, sun, isViewer }) {
+  const sunMeta = sun ? SUN_META[sun] : null;
+  const localTime = loc && sun ? approxLocalTime(loc.longitude) : null;
+
   return (
-    <div className="flex items-center gap-2 bg-white/50 rounded-lg border border-blush/60 px-3 py-2">
+    <div
+      className={`relative overflow-hidden flex items-center gap-2 rounded-lg border border-blush/60 px-3 py-2 ${
+        sunMeta ? `bg-gradient-to-br ${sunMeta.tint}` : "bg-white/50"
+      }`}
+    >
       <span
         className="h-3 w-3 rounded-full shrink-0"
         style={{ background: meta.color, boxShadow: `0 0 0 3px ${meta.color}22` }}
         aria-hidden
       />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="font-ui text-xs font-semibold text-ink truncate">
           {meta.label}
           {isViewer ? " (you)" : ""}
         </p>
-        <p className="font-ui text-[11px] text-ink/40 truncate">
+        <p className="font-ui text-[11px] text-ink/50 truncate">
           {loc ? (
             <>
               {timeAgo(loc.updatedAt)}
@@ -264,6 +326,12 @@ function PersonStatus({ meta, loc, isViewer }) {
           )}
         </p>
       </div>
+      {sunMeta && localTime && (
+        <div className="shrink-0 flex flex-col items-center gap-0.5" title={sunMeta.label}>
+          <sunMeta.Icon size={15} style={{ color: sunMeta.ring }} />
+          <span className="font-ui text-[9px] text-ink/45 whitespace-nowrap">{localTime}</span>
+        </div>
+      )}
     </div>
   );
 }

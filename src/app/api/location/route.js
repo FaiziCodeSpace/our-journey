@@ -40,7 +40,9 @@ export async function GET() {
 
     const me = serializeLocation(meDoc);
     const her = serializeLocation(herDoc);
-    const distanceMeters = me && her && !me.stale && !her.stale ? haversineDistanceMeters(me, her) : null;
+    // Always shown once both have ANY location on file — staleness is
+    // surfaced via the "last known" badge, not by hiding the distance.
+    const distanceMeters = haversineDistanceMeters(me, her);
 
     return NextResponse.json({
       me,
@@ -102,46 +104,49 @@ export async function POST(request) {
     let distanceMeters = null;
     let newRecord = false;
 
+    // Always compute + persist the closest-ever record whenever both
+    // people have ANY location on file — including the very first time,
+    // and regardless of staleness. A "last known" position is still the
+    // best distance estimate we have; the UI's "last known" badge covers
+    // the freshness caveat separately.
     if (otherDoc) {
-      const otherFresh = Date.now() - new Date(otherDoc.updatedAt).getTime() <= STALE_MS;
+      distanceMeters = haversineDistanceMeters(mine, otherDoc);
 
-      if (otherFresh) {
-        distanceMeters = haversineDistanceMeters(mine, otherDoc);
+      if (distanceMeters != null) {
+        const meLoc =
+          identity === ME
+            ? { latitude: mine.latitude, longitude: mine.longitude }
+            : { latitude: otherDoc.latitude, longitude: otherDoc.longitude };
+        const herLoc =
+          identity === HER
+            ? { latitude: mine.latitude, longitude: mine.longitude }
+            : { latitude: otherDoc.latitude, longitude: otherDoc.longitude };
 
-        if (distanceMeters != null) {
-          const meLoc =
-            identity === ME
-              ? { latitude: mine.latitude, longitude: mine.longitude }
-              : { latitude: otherDoc.latitude, longitude: otherDoc.longitude };
-          const herLoc =
-            identity === HER
-              ? { latitude: mine.latitude, longitude: mine.longitude }
-              : { latitude: otherDoc.latitude, longitude: otherDoc.longitude };
-
-          try {
-            // Atomic + race-safe: this only matches (and writes) if the
-            // stored record is still worse than the new distance. If two
-            // POSTs land nearly simultaneously and the other one already
-            // won, this filter matches zero docs and upsert:true tries to
-            // insert a duplicate _id — caught below as "not a new record",
-            // not a real error.
-            const updated = await DistanceRecord.findOneAndUpdate(
-              { _id: "closest", closestDistanceMeters: { $gt: distanceMeters } },
-              {
-                $set: {
-                  closestDistanceMeters: distanceMeters,
-                  recordedAt: new Date(),
-                  meLocation: meLoc,
-                  herLocation: herLoc,
-                },
+        try {
+          // Atomic + race-safe: this only matches (and writes) if the
+          // stored record is still worse than the new distance — or if
+          // no record exists yet at all, which is exactly the "very
+          // first update" case (filter matches zero docs, upsert
+          // inserts fresh). If two POSTs land nearly simultaneously and
+          // the other one already won, this filter matches zero docs
+          // and upsert:true tries to insert a duplicate _id — caught
+          // below as "not a new record", not a real error.
+          const updated = await DistanceRecord.findOneAndUpdate(
+            { _id: "closest", closestDistanceMeters: { $gt: distanceMeters } },
+            {
+              $set: {
+                closestDistanceMeters: distanceMeters,
+                recordedAt: new Date(),
+                meLocation: meLoc,
+                herLocation: herLoc,
               },
-              { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
-            closest = updated;
-            newRecord = true;
-          } catch (err) {
-            if (err?.code !== 11000) throw err;
-          }
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+          );
+          closest = updated;
+          newRecord = true;
+        } catch (err) {
+          if (err?.code !== 11000) throw err;
         }
       }
     }

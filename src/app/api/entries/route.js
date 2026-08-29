@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/db";
 import Entry from "@/lib/models/Entry";
 import Notification from "@/lib/models/Notification";
 import { getIdentity, getOtherIdentity, IDENTITY_META } from "@/lib/identity";
+import { sendPushToIdentity } from "@/lib/push";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -47,16 +48,28 @@ export async function POST(request) {
 
     // Notify the OTHER person — never the creator. Best-effort: a
     // notification hiccup should never fail an otherwise-successful save.
+    // The title always names the SENDER ("Him added a new memory"), from
+    // the recipient's point of view — never "You posted a memory".
     const recipient = getOtherIdentity(identity);
     if (recipient) {
+      const title = `${IDENTITY_META[identity].label} added a new memory`;
+      const message = entry.note.length > 80 ? `${entry.note.slice(0, 80)}…` : entry.note;
+
       Notification.create({
         recipient,
         sender: identity,
         type: "memory_created",
         memoryId: entry._id,
-        title: `${IDENTITY_META[identity].label} added a new memory`,
-        message: entry.note.length > 80 ? `${entry.note.slice(0, 80)}…` : entry.note,
+        title,
+        message,
       }).catch((err) => console.error("[POST /api/entries] notification failed:", err));
+
+      // Push reaches the OTHER person even if the site is closed — same
+      // personalized copy as the in-app notification, no-ops silently if
+      // push isn't configured or they haven't enabled it on any device.
+      sendPushToIdentity(recipient, { title, body: message, url: "/", tag: "memory-lane" }).catch(
+        (err) => console.error("[POST /api/entries] push failed:", err)
+      );
     }
 
     return NextResponse.json(entry, { status: 201 });
